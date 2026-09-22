@@ -85,7 +85,7 @@ Run the SQL migrations in `infra/sql/` in order (`001` through `009`) against yo
 
 ```bash
 # API
-pip install -r requirements-railway.txt
+pip install -r requirements.txt
 
 # Web
 cd apps/web && npm install
@@ -132,8 +132,6 @@ Production uses **Vercel** (frontend), **Render** (API — free tier), and **Sup
 5. On **Vercel**, set `HIREFLOW_API_URL=https://<service>.onrender.com` (no trailing slash).
 
 **Free tier note:** Render free web services spin down after ~15 minutes of inactivity. The first request after sleep may take 30–60 seconds (cold start). Screening and report jobs still run on the API; the UI polls for completion.
-
-Railway is also supported via `railway.toml` if you prefer a paid always-on host.
 
 Detailed steps are in [architecture.md §8.5](./architecture.md#85-hosting-vercel--render).
 

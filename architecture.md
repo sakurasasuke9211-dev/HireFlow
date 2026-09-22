@@ -97,7 +97,7 @@ Keyword matching is rejected as the core algorithm. A skill name is a **claim**.
                              │ HIREFLOW_API_URL
                              ▼
 ┌──────────────────────────────────────────────────────────┐
-│  Railway — FastAPI + agent runtime (apps/api)            │
+│  Render — FastAPI + agent runtime (apps/api)             │
 └───┬────────────────────┬─────────────────────┬───────────┘
     │                    │                     │
     ▼                    ▼                     ▼
@@ -131,9 +131,9 @@ The candidate is **not a HireFlow user**. They interview with the recruiter thro
 - PII lives in **Supabase tables** (names, emails, structured evidence, report metadata) and object storage (resume/transcript originals and downloadable candidate report files).
 - LLM providers receive **redacted or minimized** text where practical (resume body and transcript body are unavoidable for parsing).
 - Original files and report files never leave object storage except via signed download URLs.
-- The Supabase service role key and LLM keys stay on **Railway** (API/workers). They are never set as Vercel browser secrets and never shipped to the client.
+- The Supabase service role key and LLM keys stay on **Render** (API/workers). They are never set as Vercel browser secrets and never shipped to the client.
 - Agent traces store model I/O; they are treated as PII.
-- Production hosting is split: **Vercel** serves the recruiter UI; **Railway** runs FastAPI and the three graphs. Vercel does not host the API.
+- Production hosting is split: **Vercel** serves the recruiter UI; **Render** runs FastAPI and the three graphs. Vercel does not host the API.
 
 ---
 
@@ -207,7 +207,7 @@ HireFlow has **three async runtimes**. None of them is a live conversation.
 Triggered when a recruiter parses a JD, parses a resume, or runs match+gaps (and, in Phase 3+, interview-plan generation) for a candidate.
 
 ```text
-Vercel UI  --/backend-->  Railway API  --enqueue--> queue --worker--> screening graph
+Vercel UI  --/backend-->  Render API  --enqueue--> queue --worker--> screening graph
                                                                   │
                                                                   ├─ persist artifacts
                                                                   ├─ write interview-brief report file (Phase 3+)
@@ -215,7 +215,7 @@ Vercel UI  --/backend-->  Railway API  --enqueue--> queue --worker--> screening 
 UI polls GET /runs/:id through the same /backend proxy
 ```
 
-Long-running. Typical latency: tens of seconds to a few minutes per candidate. These jobs run on Railway, not on Vercel functions.
+Long-running. Typical latency: tens of seconds to a few minutes per candidate. These jobs run on Render, not on Vercel functions.
 
 ### 5.2 Transcript pipeline (async job)
 
@@ -255,7 +255,7 @@ A live interviewer agent would mix conversational failure modes with auditabilit
 Recruiter asks for a file in plain language. This is **not** a fourth graph and **not** a live interviewer.
 
 ```text
-Vercel /files  --/backend-->  Railway POST /files/locate
+Vercel /files  --/backend-->  Render POST /files/locate
                                  │
                                  ├─ orchestrator builds org file catalog
                                  │    (JD, resume, transcript, match & gaps,
@@ -664,7 +664,7 @@ Files are immutable. A new upload creates a new `documents.version` and invalida
 - Job queue
 - Rate limits
 
-Optional on Railway. If `REDIS_URL` is unset, screening / transcript / report jobs run in-process on the API service. Add a Railway Redis plugin and a worker process when volume requires it.
+Optional in production. If `REDIS_URL` is unset, screening / transcript / report jobs run in-process on the API service. Add a managed Redis instance and a worker process when volume requires it.
 
 No interview session locks: there is no live turn writer.
 
@@ -705,7 +705,7 @@ Render (FastAPI + in-process or Redis workers)
 
 **Render env.** `SECRET_KEY`, `CORS_ORIGINS` (the Vercel origin, e.g. `https://<project>.vercel.app`, plus any custom domain), `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Optional: `REDIS_URL`. Config: `render.yaml` at the repo root.
 
-**Render process.** Blueprint installs `requirements-railway.txt` (`packages/domain`, `packages/extract`, `packages/agents`, `apps/api`), then:
+**Render process.** Blueprint installs `requirements.txt` (`packages/domain`, `packages/extract`, `packages/agents`, `apps/api`), then:
 
 ```text
 python -m uvicorn hireflow_api.main:app --host 0.0.0.0 --port $PORT
@@ -715,9 +715,7 @@ Health check: `GET /health`. Python version: `runtime.txt` (3.11.9).
 
 **Render free tier.** Web services spin down after ~15 minutes of inactivity; the first request after sleep has a cold start (~30–60s). Long jobs (screening, report) are enqueued on the API and polled by the UI, so the Vercel proxy does not need to wait for the full graph.
 
-**Alternative: Railway.** `railway.toml` at the repo root provides the same API deploy on a paid always-on host if cold starts are unacceptable.
-
-**Timeouts.** Screening, transcript analyze, and evidence report exceed Vercel Hobby’s ~10s function cap. Use Vercel Pro for the `/backend` proxy, or enqueue on the API and poll so the proxy only waits for a queued run. Graphs themselves always run on Render/Railway.
+**Timeouts.** Screening, transcript analyze, and evidence report exceed Vercel Hobby’s ~10s function cap. Use Vercel Pro for the `/backend` proxy, or enqueue on the API and poll so the proxy only waits for a queued run. Graphs themselves always run on Render.
 
 **Not chosen:** FastAPI as Vercel serverless; SQLite or local disk as production object storage (the filesystem is ephemeral). Use Supabase Storage / S3 for files.
 
@@ -980,8 +978,8 @@ Upgrades require evidence items. Downgrades require a contradiction or explicit 
 - Recruiter: session or SSO (Phase 0: email/password or magic link is enough).
 - No candidate accounts or session tokens.
 - Row-level: all queries scoped by `org_id`.
-- Agents run as a worker identity on Railway; they cannot call decision endpoints.
-- JWT `SECRET_KEY` lives only on Railway. The Vercel proxy forwards the `Authorization` header and does not issue tokens.
+- Agents run as a worker identity on Render; they cannot call decision endpoints.
+- JWT `SECRET_KEY` lives only on Render. The Vercel proxy forwards the `Authorization` header and does not issue tokens.
 
 ### 12.2 PII and compliance
 
@@ -1057,15 +1055,15 @@ Vendors can change. The domain model and graphs cannot.
 | Concern | Choice | Why |
 | --- | --- | --- |
 | Recruiter web | Next.js (App Router) on **Vercel** | SSR for reports, one auth mode; native Next host |
-| API | Python FastAPI on **Render** (or Railway) | Long-running graphs, uploads, typed pydantic schemas |
+| API | Python FastAPI on **Render** | Long-running graphs, uploads, typed pydantic schemas |
 | Agent graphs | LangGraph | Explicit state machines; screening vs transcript vs report |
 | Structured output | Pydantic + constrained decoding | Status enums cannot drift |
 | DB | Supabase tables | Hosted Postgres; RLS; JSONB for flags and `report.body` |
 | Files | S3-compatible (Supabase Storage in production) | Immutable originals (JD, resume, transcript) and candidate report files |
-| Queue | Redis + arq (optional); in-process on Railway until Redis is added | Screening / transcript / report jobs |
+| Queue | Redis + arq (optional); in-process on Render until Redis is added | Screening / transcript / report jobs |
 | Text extraction | pypdf / python-docx / vtt; OCR fallback later | Phase 0–1 and transcript ingest |
 | Embeddings | Optional pgvector on the Supabase project | Claim and turn retrieval aid only |
-| LLM | Provider-agnostic gateway on Railway | Swap models per agent tier; keys never on Vercel |
+| LLM | Provider-agnostic gateway on Render | Swap models per agent tier; keys never on Vercel |
 | Observability | OpenTelemetry + `agent_traces` | Eval and cost |
 
 **Not chosen:** an Interviewer agent, a candidate chat UI, matching by embedding nearest-neighbor, auto-reject on `MISSING`, storing match labels only in vector space, a self-hosted PostgreSQL instance, local SQLite as the system of record, **FastAPI on Vercel serverless**.
@@ -1078,7 +1076,7 @@ Vendors can change. The domain model and graphs cannot.
 apps/
   web/                      Next.js recruiter UI (Vercel; root directory apps/web)
     vercel.json
-  api/                      FastAPI: routes, auth, enqueue, persistence (Railway)
+  api/                      FastAPI: routes, auth, enqueue, persistence (Render)
 
 packages/
   domain/                   Shared pydantic/TS types and enums
@@ -1103,9 +1101,7 @@ infra/
 
 render.yaml                 Render Blueprint (free API web service)
 runtime.txt                 Python 3.11.9 for Render
-requirements-railway.txt    Editable installs for domain, extract, agents, api
-railway.toml                Optional paid API host (alternative to Render)
-nixpacks.toml               Python 3.11 on Railway
+requirements.txt            Editable installs for domain, extract, agents, api
 ```
 
 Rules:
@@ -1235,7 +1231,7 @@ This completes the problem-statement workflow.
 
 **Out of scope.** Starting pipelines, hiring decisions, browsing files outside the org catalog.
 
-**Deploy.** Same Railway env as other agents (`GROQ_API_KEY` for summarize/parse on raw documents). Vercel proxies `/backend` only; no extra env beyond `HIREFLOW_API_URL`.
+**Deploy.** Same Render env as other agents (`GROQ_API_KEY` for summarize/parse on raw documents). Vercel proxies `/backend` only; no extra env beyond `HIREFLOW_API_URL`.
 
 ### Phase 7 — Scale and hiring operations
 
