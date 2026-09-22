@@ -672,17 +672,17 @@ No interview session locks: there is no live turn writer.
 
 Each agent invocation: input JSON, output JSON, model, tokens, latency, prompt version. May live in the Supabase `agent_traces` table initially; can move to Langfuse/OpenTelemetry later without changing domain tables.
 
-### 8.5 Hosting (Vercel + Railway)
+### 8.5 Hosting (Vercel + Render)
 
 Production is **two application hosts** plus Supabase. Do not put FastAPI on Vercel.
 
 | Surface | Host | Why |
 | --- | --- | --- |
 | Recruiter web (`apps/web`) | **Vercel** | Next.js App Router; static + server proxy only |
-| API + orchestrator (`apps/api`) | **Railway** | Always-on Python process: uploads, 30s–minutes LLM graphs |
+| API + orchestrator (`apps/api`) | **Render** (free tier) | Python web service: uploads, 30s–minutes LLM graphs |
 | Tables | **Supabase** | System of record (already chosen) |
 | Files | **Supabase Storage** (S3-compatible later) | Immutable originals and report files |
-| LLM | Groq (or the configured gateway) | Called only from Railway |
+| LLM | Groq (or the configured gateway) | Called only from the API host |
 
 ```text
 Browser
@@ -691,58 +691,62 @@ Browser
 Vercel (Next.js)
   │ server-side /backend/*  (HIREFLOW_API_URL, maxDuration 120s)
   ▼
-Railway (FastAPI + in-process or Redis workers)
+Render (FastAPI + in-process or Redis workers)
   ├─ Supabase tables (SUPABASE_SERVICE_ROLE_KEY)
   ├─ Object storage
   └─ LLM provider (GROQ_API_KEY)
 ```
 
-**Browser contract.** The UI keeps calling same-origin `/backend`. The App Router handler at `apps/web/src/app/backend/[...path]/route.ts` forwards to Railway (`HIREFLOW_API_URL`). Recruiters never see the Railway URL. The browser never receives service-role or LLM keys.
+**Browser contract.** The UI keeps calling same-origin `/backend`. The App Router handler at `apps/web/src/app/backend/[...path]/route.ts` forwards to Render (`HIREFLOW_API_URL`). Recruiters never see the API host URL. The browser never receives service-role or LLM keys.
 
 **Local.** `HIREFLOW_API_URL` defaults to `http://127.0.0.1:8000`. Next.js on :3000/:3001, uvicorn on :8000.
 
-**Vercel env.** `HIREFLOW_API_URL` = Railway public HTTPS origin, no trailing slash. Root Directory = `apps/web`. Config: `apps/web/vercel.json`.
+**Vercel env.** `HIREFLOW_API_URL` = Render public HTTPS origin, no trailing slash (e.g. `https://hireflow-api.onrender.com`). Root Directory = `apps/web`. Config: `apps/web/vercel.json`.
 
-**Railway env.** `SECRET_KEY`, `CORS_ORIGINS` (the Vercel origin, e.g. `https://<project>.vercel.app`, plus any custom domain), `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Optional: `REDIS_URL`, `SUPABASE_DB_URL`. Config: `railway.toml` at the repo root.
+**Render env.** `SECRET_KEY`, `CORS_ORIGINS` (the Vercel origin, e.g. `https://<project>.vercel.app`, plus any custom domain), `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Optional: `REDIS_URL`. Config: `render.yaml` at the repo root.
 
-**Railway process.** `railway.toml` installs `requirements-railway.txt` (`packages/domain`, `packages/extract`, `packages/agents`, `apps/api`), then:
+**Render process.** Blueprint installs `requirements-railway.txt` (`packages/domain`, `packages/extract`, `packages/agents`, `apps/api`), then:
 
 ```text
-uvicorn hireflow_api.main:app --host 0.0.0.0 --port $PORT
+python -m uvicorn hireflow_api.main:app --host 0.0.0.0 --port $PORT
 ```
 
-Health check: `GET /health`.
+Health check: `GET /health`. Python version: `runtime.txt` (3.11.9).
 
-**Timeouts.** Screening, transcript analyze, and evidence report exceed Vercel Hobby’s ~10s function cap. Use Vercel Pro for the `/backend` proxy, or enqueue on Railway and poll so the proxy only waits for a queued run. Graphs themselves always run on Railway.
+**Render free tier.** Web services spin down after ~15 minutes of inactivity; the first request after sleep has a cold start (~30–60s). Long jobs (screening, report) are enqueued on the API and polled by the UI, so the Vercel proxy does not need to wait for the full graph.
 
-**Not chosen:** FastAPI as Vercel serverless; SQLite or local disk as production object storage on Railway (the filesystem is ephemeral). Use Supabase Storage / S3 for files.
+**Alternative: Railway.** `railway.toml` at the repo root provides the same API deploy on a paid always-on host if cold starts are unacceptable.
 
-#### 8.5.1 Deploy checklist (Supabase → Railway → Vercel)
+**Timeouts.** Screening, transcript analyze, and evidence report exceed Vercel Hobby’s ~10s function cap. Use Vercel Pro for the `/backend` proxy, or enqueue on the API and poll so the proxy only waits for a queued run. Graphs themselves always run on Render/Railway.
+
+**Not chosen:** FastAPI as Vercel serverless; SQLite or local disk as production object storage (the filesystem is ephemeral). Use Supabase Storage / S3 for files.
+
+#### 8.5.1 Deploy checklist (Supabase → Render → Vercel)
 
 **1. Supabase (database + files)**
 
 - Create a project at [supabase.com](https://supabase.com).
 - Run migrations in `infra/sql/` against the project (SQL editor or `psql` with the connection string).
 - Create a **private** Storage bucket named `hireflow` (the API also attempts to create it on first upload).
-- Copy **Project URL** → `SUPABASE_URL` and **service role key** → `SUPABASE_SERVICE_ROLE_KEY` (Railway only; never on Vercel).
+- Copy **Project URL** → `SUPABASE_URL` and **service role key** → `SUPABASE_SERVICE_ROLE_KEY` (Render only; never on Vercel).
 
-**2. Railway (API)**
+**2. Render (API)**
 
-- New service from this repo; use repo root (not `apps/api`).
-- Build/start: `railway.toml` + `requirements-railway.txt` + `nixpacks.toml` (Python 3.11).
-- Set environment variables (see root `.env.example`):
+- In [Render](https://render.com): **New → Blueprint**, connect the GitHub repo.
+- Render reads `render.yaml` and creates a free **Web Service** named `hireflow-api`.
+- Set environment variables in the Render dashboard (see root `.env.example`):
 
   | Variable | Value |
   | --- | --- |
-  | `SECRET_KEY` | Long random string (JWT signing) |
+  | `SECRET_KEY` | Auto-generated by Blueprint, or set a long random string |
   | `CORS_ORIGINS` | Vercel URL(s), comma-separated, e.g. `https://hireflow.vercel.app` |
   | `SUPABASE_URL` | From Supabase |
   | `SUPABASE_SERVICE_ROLE_KEY` | From Supabase |
   | `GROQ_API_KEY` | From Groq |
-  | `APP_ENV` | `production` |
+  | `APP_ENV` | `production` (set by Blueprint) |
 
-- Deploy; confirm `GET https://<service>.up.railway.app/health` returns `{ "status": "ok" }`.
-- Optional: add Railway Redis and set `REDIS_URL` for a dedicated worker later.
+- Deploy; confirm `GET https://<service>.onrender.com/health` returns `{ "status": "ok" }`.
+- Optional: upgrade to a paid Render plan to avoid free-tier sleep/cold starts.
 
 **3. Vercel (recruiter web)**
 
@@ -751,10 +755,10 @@ Health check: `GET /health`.
 
   | Variable | Value |
   | --- | --- |
-  | `HIREFLOW_API_URL` | Railway public HTTPS origin, **no trailing slash** |
+  | `HIREFLOW_API_URL` | Render public HTTPS origin, **no trailing slash** (e.g. `https://hireflow-api.onrender.com`) |
 
-- Deploy. The UI calls same-origin `/backend/*`; `apps/web/src/app/backend/[...path]/route.ts` proxies to Railway (`maxDuration` 120s in `vercel.json`).
-- After first deploy, add the Vercel production URL to Railway `CORS_ORIGINS` if not already set.
+- Deploy. The UI calls same-origin `/backend/*`; `apps/web/src/app/backend/[...path]/route.ts` proxies to Render (`maxDuration` 120s in `vercel.json`).
+- After first deploy, add the Vercel production URL to Render `CORS_ORIGINS` if not already set.
 
 **4. Smoke test**
 
@@ -767,7 +771,7 @@ Health check: `GET /health`.
 | Host | Holds |
 | --- | --- |
 | Vercel | `HIREFLOW_API_URL` only |
-| Railway | `SECRET_KEY`, `CORS_ORIGINS`, `SUPABASE_*`, `GROQ_API_KEY` |
+| Render | `SECRET_KEY`, `CORS_ORIGINS`, `SUPABASE_*`, `GROQ_API_KEY` |
 | Browser | Recruiter JWT only (httpOnly/localStorage per web app) |
 
 ---
@@ -1053,7 +1057,7 @@ Vendors can change. The domain model and graphs cannot.
 | Concern | Choice | Why |
 | --- | --- | --- |
 | Recruiter web | Next.js (App Router) on **Vercel** | SSR for reports, one auth mode; native Next host |
-| API | Python FastAPI on **Railway** | Long-running graphs, uploads, typed pydantic schemas |
+| API | Python FastAPI on **Render** (or Railway) | Long-running graphs, uploads, typed pydantic schemas |
 | Agent graphs | LangGraph | Explicit state machines; screening vs transcript vs report |
 | Structured output | Pydantic + constrained decoding | Status enums cannot drift |
 | DB | Supabase tables | Hosted Postgres; RLS; JSONB for flags and `report.body` |
@@ -1097,8 +1101,10 @@ packages/
 infra/
   sql/                      Supabase table migrations
 
-railway.toml                Railway API build + start + /health
+render.yaml                 Render Blueprint (free API web service)
+runtime.txt                 Python 3.11.9 for Render
 requirements-railway.txt    Editable installs for domain, extract, agents, api
+railway.toml                Optional paid API host (alternative to Render)
 nixpacks.toml               Python 3.11 on Railway
 ```
 
@@ -1108,7 +1114,7 @@ Rules:
 - Agents never import FastAPI, SQLAlchemy, or the Supabase client.
 - Persistence belongs to the API/orchestrator, which writes HireFlow tables in Supabase.
 - `domain` is the contract both sides share (OpenAPI generated from pydantic).
-- Vercel env is only `HIREFLOW_API_URL` (and Next public settings if any). Railway holds `SECRET_KEY`, `CORS_ORIGINS`, `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+- Vercel env is only `HIREFLOW_API_URL` (and Next public settings if any). Render holds `SECRET_KEY`, `CORS_ORIGINS`, `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 
 Introduce an agent package in the phase that owns it. Do not stub all ten on day one.
 
@@ -1135,7 +1141,7 @@ Phase 7  Scale: multi-candidate, comparison, ATS
 
 **Build.** Auth (`recruiter`), jobs, candidates, file upload, raw text extraction, Supabase tables (schema may be sparse), Redis queue, `PipelineRun` + `agent_traces`, object storage.
 
-**Runtime.** Local: `Web → API → Supabase tables / Storage / Queue`. Production: `Vercel web → Railway API → Supabase / LLM`. No LLM required for Phase 0. Required env: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Production also: Railway `SECRET_KEY` + `CORS_ORIGINS`; Vercel `HIREFLOW_API_URL`.
+**Runtime.** Local: `Web → API → Supabase tables / Storage / Queue`. Production: `Vercel web → Render API → Supabase / LLM`. No LLM required for Phase 0. Required env: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Production also: Render `SECRET_KEY` + `CORS_ORIGINS`; Vercel `HIREFLOW_API_URL`.
 
 **Success.** Upload JD + N resumes; extracted text visible; failed uploads visible.
 

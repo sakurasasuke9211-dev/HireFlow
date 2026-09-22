@@ -107,15 +107,35 @@ Open [http://localhost:3001](http://localhost:3001), register an account, and cr
 
 ## Production deployment
 
-Production uses **Vercel** (frontend), **Railway** (API), and **Supabase** (database + storage).
+Production uses **Vercel** (frontend), **Render** (API — free tier), and **Supabase** (database + storage).
 
 | Host | Root / config | Required env |
 | --- | --- | --- |
 | **Vercel** | `apps/web` | `HIREFLOW_API_URL` |
-| **Railway** | repo root | `SECRET_KEY`, `CORS_ORIGINS`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY` |
+| **Render** | repo root (`render.yaml`) | `SECRET_KEY`, `CORS_ORIGINS`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY` |
 | **Supabase** | — | Run `infra/sql/` migrations; bucket `hireflow` |
 
-Detailed steps are in [architecture.md §8.5](./architecture.md#85-hosting-vercel--railway).
+### Render (API) — quick start
+
+1. Push this repo to GitHub (already done if you cloned from [HireFlow](https://github.com/sakurasasuke9211-dev/HireFlow)).
+2. In [Render](https://render.com), **New → Blueprint** and connect the repo. Render reads `render.yaml`.
+3. Set these env vars when prompted (or in the service dashboard):
+
+   | Variable | Value |
+   | --- | --- |
+   | `CORS_ORIGINS` | Your Vercel URL, e.g. `https://hireflow.vercel.app` |
+   | `SUPABASE_URL` | From Supabase |
+   | `SUPABASE_SERVICE_ROLE_KEY` | From Supabase |
+   | `GROQ_API_KEY` | From Groq |
+
+4. Deploy; confirm `GET https://<service>.onrender.com/health` returns `{ "status": "ok" }`.
+5. On **Vercel**, set `HIREFLOW_API_URL=https://<service>.onrender.com` (no trailing slash).
+
+**Free tier note:** Render free web services spin down after ~15 minutes of inactivity. The first request after sleep may take 30–60 seconds (cold start). Screening and report jobs still run on the API; the UI polls for completion.
+
+Railway is also supported via `railway.toml` if you prefer a paid always-on host.
+
+Detailed steps are in [architecture.md §8.5](./architecture.md#85-hosting-vercel--render).
 
 ## Tests
 
