@@ -1,0 +1,8 @@
+Alex Rivera
+Backend engineer
+
+Skills: Python — 4 years, SQL, Docker
+
+Experience
+- Built internal tools for a logistics team
+- Worked with REST APIs

@@ -1,0 +1,10 @@
+Senior Backend Engineer
+
+Must-have:
+- Python, 4+ years professional experience
+- PostgreSQL
+- Designing and operating production APIs
+
+Nice-to-have:
+- Redis
+- AWS

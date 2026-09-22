@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hireflow-extract"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pypdf>=5.0.0",
+    "python-docx>=1.1.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["hireflow_extract*"]

@@ -1,0 +1,5 @@
+# Install local packages first so hireflow-api does not look on PyPI.
+-e ./packages/domain
+-e ./packages/extract
+-e ./packages/agents
+-e ./apps/api
