@@ -1,3 +1,0 @@
-# Nixpacks: Railway API service.
-[variables]
-NIXPACKS_PYTHON_VERSION = "3.11"
