@@ -20,7 +20,15 @@ import { StatusChip } from "@/components/StatusChip";
 
 import { api } from "@/lib/api";
 
-import type { Candidate, InterviewPlanResponse, JobDetail, MatchResult, MatrixResponse, Requirement } from "@/lib/types";
+import type {
+  Candidate,
+  InterviewPlanResponse,
+  JobDetail,
+  MatchResult,
+  MatchStatus,
+  MatrixResponse,
+  Requirement,
+} from "@/lib/types";
 
 import { cellsForCandidate, countMatchStatuses, countStatuses, statusMeta, toUiStatus } from "@/lib/screening";
 
@@ -102,9 +110,9 @@ function matchStatusForRequirement(
 
   matches: MatchResult[],
 
-  cellStatus: string | null | undefined,
+  cellStatus: MatchStatus | null | undefined,
 
-) {
+): MatchStatus | null {
 
   const match = matches.find((item) => item.requirement_id === requirementId);
 
