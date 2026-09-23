@@ -27,10 +27,12 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   }
 
   const response = await fetch(target, init);
+  const body = await response.arrayBuffer();
   const out = new Headers(response.headers);
   out.delete("content-encoding");
   out.delete("transfer-encoding");
-  return new Response(response.body, { status: response.status, headers: out });
+  out.delete("content-length");
+  return new Response(body, { status: response.status, headers: out });
 }
 
 export const GET = proxy;
