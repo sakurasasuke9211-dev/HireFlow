@@ -8,6 +8,8 @@ For each candidate, HireFlow answers:
 
 Recruiters upload a job description and resumes, review match-and-gap analysis, generate interview questions, upload interview transcripts, and produce a final evidence report with a human hiring decision.
 
+https://hireflow-ruby-iota.vercel.app/login
+
 ## Features
 
 - **JD and resume parsing** — structured requirements and profile claims
