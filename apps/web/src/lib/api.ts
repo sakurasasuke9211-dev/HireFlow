@@ -1,9 +1,15 @@
+import { getApiBase } from "./api-base";
 import { clearSession, getToken } from "./auth";
 import type { Candidate, Decision, EvidenceReportResponse, FileAssistantChatResponse, FileAssistantChatTurn, FileAssistantHistoryItem, FileAssistantPageContext, FileLocatorResponse, Gap, InterviewPlanResponse, JobDetail, JobSummary, MatchResult, MatrixResponse, PipelineRun, PlannedQuestion, ProbeResult, Requirement, ScreenStatus, TranscriptDetail, TranscriptSummary, TranscriptTurn, User } from "./types";
 
-const API = "/backend";
+function gatewayWakeupMessage(status: number): string | null {
+  if (status === 502 || status === 503 || status === 504) {
+    return "The API is waking up (free tier). Wait about a minute and try again.";
+  }
+  return null;
+}
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function requestOnce<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -13,7 +19,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(`${API}${path}`, { ...init, headers });
+    response = await fetch(`${getApiBase()}${path}`, { ...init, headers });
   } catch {
     throw new Error("Could not reach the API. Start the backend on port 8000.");
   }
@@ -24,11 +30,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
   }
   if (!response.ok) {
-    let detail = `Request failed (${response.status})`;
+    let detail = gatewayWakeupMessage(response.status) ?? `Request failed (${response.status})`;
     try {
       const body = (await response.json()) as { detail?: string };
-    if (typeof body.detail === "string") detail = body.detail;
-    else if (Array.isArray(body.detail)) detail = JSON.stringify(body.detail);
+      if (typeof body.detail === "string") detail = body.detail;
+      else if (Array.isArray(body.detail)) detail = JSON.stringify(body.detail);
     } catch {
       /* ignore */
     }
@@ -38,11 +44,32 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return requestOnce<T>(path, init);
+}
+
+async function requestWithRetry<T>(path: string, init: RequestInit, attempts = 3): Promise<T> {
+  let last: Error | null = null;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await requestOnce<T>(path, init);
+    } catch (err) {
+      last = err instanceof Error ? err : new Error(String(err));
+      const retry =
+        i + 1 < attempts &&
+        /502|503|504|waking up|Could not reach/i.test(last.message);
+      if (!retry) throw last;
+      await new Promise((resolve) => window.setTimeout(resolve, 5000 * (i + 1)));
+    }
+  }
+  throw last ?? new Error("Request failed");
+}
+
 async function downloadAttachment(path: string, fallbackName: string) {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(`${API}${path}`, { headers });
+  const response = await fetch(`${getApiBase()}${path}`, { headers });
   if (response.status === 401) {
     clearSession();
     if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
@@ -75,12 +102,12 @@ async function downloadAttachment(path: string, fallbackName: string) {
 
 export const api = {
   register: (body: { email: string; password: string; name: string; org_name: string }) =>
-    request<{ access_token: string; user: User }>("/auth/register", {
+    requestWithRetry<{ access_token: string; user: User }>("/auth/register", {
       method: "POST",
       body: JSON.stringify(body),
     }),
   login: (body: { email: string; password: string }) =>
-    request<{ access_token: string; user: User }>("/auth/login", {
+    requestWithRetry<{ access_token: string; user: User }>("/auth/login", {
       method: "POST",
       body: JSON.stringify(body),
     }),
