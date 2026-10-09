@@ -12,6 +12,7 @@ _arq_pool = None
 
 async def init_queue() -> None:
     global _arq_pool
+    settings.validate_redis_settings()
     if not settings.uses_redis:
         logger.info("Redis unset — extract jobs will run in-process")
         return

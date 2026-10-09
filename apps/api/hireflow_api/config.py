@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import ClassVar
+from urllib.parse import urlparse
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -63,6 +65,21 @@ class Settings(BaseSettings):
     llm_azure_deployment_fast: str = ""
     llm_azure_deployment_strong: str = ""
 
+    @field_validator(
+        "supabase_url",
+        "supabase_service_role_key",
+        "supabase_db_url",
+        "redis_url",
+        "cors_origins",
+        "groq_api_key",
+        mode="before",
+    )
+    @classmethod
+    def strip_env_strings(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
     _FAST_AGENTS: ClassVar[frozenset[str]] = frozenset(
         {"jd_parser", "resume_parser", "transcript_parser", "file_locator", "file_summarizer"}
     )
@@ -84,6 +101,44 @@ class Settings(BaseSettings):
     @property
     def supabase_configured(self) -> bool:
         return bool(self.supabase_url and self.supabase_service_role_key)
+
+    def validate_supabase_settings(self) -> None:
+        if not self.supabase_configured:
+            raise RuntimeError(
+                "Supabase is not configured. On Render, set SUPABASE_URL and "
+                "SUPABASE_SERVICE_ROLE_KEY (no spaces after =)."
+            )
+        url = self.supabase_url
+        if "your-project" in url or "your-project-ref" in url:
+            raise RuntimeError(
+                "SUPABASE_URL is still a placeholder. Use your project URL from "
+                "Supabase → Settings → API (https://xxxx.supabase.co)."
+            )
+        parsed = urlparse(url)
+        if parsed.scheme not in {"https", "http"} or not parsed.netloc:
+            raise RuntimeError(
+                f"SUPABASE_URL is invalid: {url!r}. Expected https://YOUR_REF.supabase.co"
+            )
+        if ".supabase.co" not in parsed.netloc:
+            raise RuntimeError(
+                f"SUPABASE_URL host looks wrong: {parsed.netloc!r}. "
+                "Copy the Project URL from Supabase dashboard."
+            )
+        if len(self.supabase_service_role_key) < 20:
+            raise RuntimeError(
+                "SUPABASE_SERVICE_ROLE_KEY looks too short. Paste the service_role "
+                "secret from Supabase → Settings → API."
+            )
+
+    def validate_redis_settings(self) -> None:
+        if not self.uses_redis:
+            return
+        parsed = urlparse(self.redis_url)
+        if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+            raise RuntimeError(
+                "REDIS_URL is invalid. On Render free tier, leave REDIS_URL unset "
+                "so jobs run in-process."
+            )
 
     @property
     def uses_s3(self) -> bool:

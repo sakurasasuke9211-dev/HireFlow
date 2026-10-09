@@ -119,14 +119,17 @@ Production uses **Vercel** (frontend), **Render** (API — free tier), and **Sup
 
 1. Push this repo to GitHub (already done if you cloned from [HireFlow](https://github.com/sakurasasuke9211-dev/HireFlow)).
 2. In [Render](https://render.com), **New → Blueprint** and connect the repo. Render reads `render.yaml`.
-3. Set these env vars when prompted (or in the service dashboard):
+3. Set these env vars in the Render service dashboard (no spaces after `=`):
 
    | Variable | Value |
    | --- | --- |
-   | `CORS_ORIGINS` | Your Vercel URL, e.g. `https://hireflow.vercel.app` |
-   | `SUPABASE_URL` | From Supabase |
-   | `SUPABASE_SERVICE_ROLE_KEY` | From Supabase |
+   | `CORS_ORIGINS` | Your Vercel URL, e.g. `https://hireflow-ruby-iota.vercel.app` |
+   | `SUPABASE_URL` | Supabase → Settings → API → **Project URL** (`https://xxxx.supabase.co`) |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API → **service_role** secret |
    | `GROQ_API_KEY` | From Groq |
+   | `SECRET_KEY` | Long random string (Render can generate) |
+
+   Do **not** leave placeholder values from `.env.example`. Leave `REDIS_URL` unset on free tier.
 
 4. Deploy; confirm `GET https://<service>.onrender.com/health` returns `{ "status": "ok" }`.
 5. On **Vercel**, set both (no trailing slash):

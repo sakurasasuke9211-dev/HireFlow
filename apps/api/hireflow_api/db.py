@@ -173,17 +173,29 @@ async def apply_schema() -> None:
 
 
 async def init_db() -> None:
-    if not settings.supabase_configured:
-        raise RuntimeError(
-            "Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env."
-        )
+    settings.validate_supabase_settings()
     await apply_schema()
     from hireflow_api.storage import ensure_bucket
 
-    await ensure_bucket()
+    try:
+        await ensure_bucket()
+    except Exception as exc:
+        if exc.__class__.__name__ == "ConnectError" or "Name or service not known" in str(exc):
+            raise RuntimeError(
+                "Cannot reach Supabase (DNS/connect failed). On Render, verify SUPABASE_URL "
+                f"is exactly your Supabase Project URL (currently {settings.supabase_url!r}). "
+                "Remove leading/trailing spaces and redeploy."
+            ) from exc
+        raise
     try:
         await fetch_many(REQUIRED_TABLE, limit=1)
     except Exception as exc:
+        if exc.__class__.__name__ == "ConnectError" or "Name or service not known" in str(exc):
+            raise RuntimeError(
+                "Cannot reach Supabase (DNS/connect failed). On Render, verify SUPABASE_URL "
+                f"is exactly your Supabase Project URL (currently {settings.supabase_url!r}). "
+                "Remove leading/trailing spaces and redeploy."
+            ) from exc
         raise RuntimeError(
             "Supabase tables are missing. Run infra/sql/001_phase0.sql through 009_phase6.sql "
             "in the Supabase SQL editor, or set SUPABASE_DB_URL so the API can apply them."
