@@ -111,7 +111,7 @@ Production uses **Vercel** (frontend), **Render** (API — free tier), and **Sup
 
 | Host | Root / config | Required env |
 | --- | --- | --- |
-| **Vercel** | `apps/web` | `HIREFLOW_API_URL` |
+| **Vercel** | `apps/web` | `HIREFLOW_API_URL`, `NEXT_PUBLIC_HIREFLOW_API_URL` (same Render URL, no trailing slash) |
 | **Render** | repo root (`render.yaml`) | `SECRET_KEY`, `CORS_ORIGINS`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY` |
 | **Supabase** | — | Run `infra/sql/` migrations; bucket `hireflow` |
 
@@ -129,7 +129,9 @@ Production uses **Vercel** (frontend), **Render** (API — free tier), and **Sup
    | `GROQ_API_KEY` | From Groq |
 
 4. Deploy; confirm `GET https://<service>.onrender.com/health` returns `{ "status": "ok" }`.
-5. On **Vercel**, set `HIREFLOW_API_URL=https://<service>.onrender.com` (no trailing slash).
+5. On **Vercel**, set both (no trailing slash):
+   - `HIREFLOW_API_URL=https://<service>.onrender.com`
+   - `NEXT_PUBLIC_HIREFLOW_API_URL=https://<service>.onrender.com` (browser calls Render directly; avoids Vercel Hobby 10s proxy timeout on cold start)
 
 **Free tier note:** Render free web services spin down after ~15 minutes of inactivity. The first request after sleep may take 30–60 seconds (cold start). Screening and report jobs still run on the API; the UI polls for completion.
 

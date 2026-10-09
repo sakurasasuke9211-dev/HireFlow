@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { setSession } from "@/lib/auth";
+import { wakeApi } from "@/lib/wake-api";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -15,6 +16,10 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    wakeApi();
+  }, []);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
